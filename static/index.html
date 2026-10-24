@@ -1,0 +1,31 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>CampusWaste Intelligence</title>
+<link rel=stylesheet href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>body{margin:0;font:14px system-ui;display:grid;grid-template-columns:1fr 380px;height:100vh}#map{height:100%}aside{overflow:auto;padding:12px;background:#f6f8f7}
+@media(max-width:800px){body{grid-template-columns:1fr;grid-template-rows:50vh 1fr}}h1{font-size:18px;margin:0 0 4px}h3{margin:14px 0 6px}
+.k{display:grid;grid-template-columns:1fr 1fr;gap:6px}.k div{background:#fff;padding:8px;border-radius:8px}.k b{font-size:18px;display:block}
+button{padding:6px 10px;margin:2px;border:0;border-radius:6px;background:#0a7d4f;color:#fff;cursor:pointer}small,.n{color:#555;font-size:12px}
+.b{background:#fff;margin:4px 0;padding:6px;border-radius:6px}</style>
+<div id=map></div><aside><h1>♻ CampusWaste Intelligence</h1><small>IIT Roorkee · sensor-free · <b>demo data</b></small>
+<h3>Live simulation</h3><button onclick="sim('lunch_surge')">Lunch surge</button><button onclick="sim('new_report')">New overflow report</button><button onclick="sim('breakdown')">Vehicle breakdown</button><button onclick="sim('reset')" style="background:#666">Reset</button>
+<h3>Operations <span class=n id=veh></span></h3><div class=k id=kpi></div><p class=n id=lbl></p>
+<h3>Accuracy</h3><div id=acc class=n></div>
+<h3>Classify waste</h3><input type=file accept="image/*" capture=environment onchange="cls(this.files[0])"><div id=cr class=n></div>
+<h3>Bins (observed vs predicted)</h3><div id=list></div></aside>
+<script>
+const map=L.map('map').setView([29.8652,77.8972],17);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+let layer=L.layerGroup().addTo(map);const col=f=>f>=85?'#d33':f>=60?'#e90':'#2a2';const J=(u,o)=>fetch(u,o).then(r=>r.json());
+const post=(u,b)=>J(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+async function load(){const [B,R,A]=await Promise.all([J('/api/bins'),J('/api/route'),J('/api/analytics')]);layer.clearLayers();
+B.bins.forEach(b=>{L.circleMarker([b.lat,b.lng],{radius:10,color:col(b.fill),fillOpacity:.8}).addTo(layer).bindPopup(`<b>${b.name}</b><br>${b.kind.toUpperCase()}: ${b.fill}% (conf ${b.confidence})<br>Last ${b.last_source} obs: ${b.last_fill}% ${b.age_h}h ago<br>Overflow in: ${b.hours_to_overflow??'now'} h<br><button onclick="rep(${b.id})">Report fill</button><button onclick="col(${b.id})">Collected</button>`)});
+const cs=['#06c','#a0a','#c60','#088'];R.smart.routes.forEach((r,i)=>L.polyline(r.path,{color:cs[i%4],weight:4}).addTo(layer).bindTooltip(`Vehicle ${r.vehicle}: ${r.km} km`));
+kpi.innerHTML=`<div><b>${R.needed.length}/${B.bins.length}</b>bins need service</div><div><b>${R.smart.km} km</b>smart route (${R.smart.minutes} min)</div><div><b>${R.baseline_all_bins.km} km</b>visit-all baseline</div><div><b>${R.km_saved} km</b>saved · ${R.co2_saved_kg} kg CO₂</div>`;
+veh.textContent=`· ${R.vehicles} vehicles`;lbl.textContent=R.label+(R.smart.dropped.length?` Unserved (capacity): ${R.smart.dropped.length}`:'');
+acc.innerHTML=Object.entries(A).map(([k,v])=>`<b>${k}</b>: `+(v.note||`n=${v.n}, MAE model ${v.mae_model}% vs persistence ${v.mae_persistence_baseline}%`)).join('<br>');
+list.innerHTML=B.bins.sort((a,b)=>b.fill-a.fill).map(b=>`<div class=b><b>${b.name}</b> <span style="color:${col(b.fill)}">${b.fill}%</span> <small>${b.kind}, conf ${b.confidence}; last obs ${b.last_fill}% (${b.age_h}h ago)</small></div>`).join('')}
+window.rep=async id=>{const v=prompt('Fill % (0-100)?');if(v!==null){await post('/api/reports',{bin_id:id,fill_pct:+v});load()}};
+window.col=async id=>{await post('/api/collections',{bin_id:id});load()};
+const sim=async s=>{await post('/api/simulate',{scenario:s});load()};
+async function cls(f){const d=new FormData();d.append('file',f);const r=await J('/api/classify',{method:'POST',body:d});
+cr.innerHTML=`<b>${r.label}</b> → ${r.bin}<br>confidence ${r.confidence}${r.uncertain?' ⚠ UNCERTAIN, please verify manually':''}<br>${r.engine}<br>${r.note||''}`}
+load();
+</script>
